@@ -36,4 +36,12 @@ public class WeatherBean {
         String[] str = {SUN,RAIN,CLOUDY,SUN_CLOUD,SNOW,THUNDER};
         return str;
     }
+
+    public int getTemperature() {
+        return temperature;
+    }
+
+    public void setTemperature(int temperature) {
+        this.temperature = temperature;
+    }
 }

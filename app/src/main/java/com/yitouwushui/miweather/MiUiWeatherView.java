@@ -98,7 +98,32 @@ public class MiUiWeatherView extends View {
         initIcons();
     }
 
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        initSize(getContext());
+        calculatePointGap();
+    }
 
+    private void calculatePointGap() {
+        int lastMaxTem = -100000;
+        int lastMinTem = 100000;
+        for (WeatherBean bean : data) {
+            if (bean.getTemperature() > lastMaxTem) {
+                // 记录最大值
+                maxTemperature = bean.getTemperature();
+                lastMaxTem = bean.getTemperature();
+            }
+            if (bean.getTemperature() < lastMinTem) {
+                // 记录最小值
+                minTemperature = bean.getTemperature();
+                lastMinTem = bean.getTemperature();
+            }
+        }
+        float gap = (maxTemperature - minTemperature) * 1.0f;
+        gap = (gap == 0.0f ? 1.0f : gap);  //保证分母不为0
+        pointGap = (viewHeight - minPointHeight - 2 * defaultPadding) / gap;
+    }
 
     /**
      * 初始化笔

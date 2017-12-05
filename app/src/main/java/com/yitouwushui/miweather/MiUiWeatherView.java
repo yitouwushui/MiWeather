@@ -5,13 +5,20 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PathEffect;
 import android.graphics.PointF;
+import android.graphics.RectF;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.util.Pair;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
@@ -28,9 +35,13 @@ import java.util.Map;
 
 public class MiUiWeatherView extends View {
 
-    /**蓝色*/
+    /**
+     * 蓝色
+     */
     private static int DEFAULT_BULE = 0XFF00BFFF;
-    /**灰色*/
+    /**
+     * 灰色
+     */
     private static int DEFAULT_GRAY = Color.GRAY;
 
     private int backgroundColor;
@@ -105,6 +116,60 @@ public class MiUiWeatherView extends View {
         calculatePointGap();
     }
 
+    /**
+     * 唯一公开方法，用于设置元数据
+     *
+     * @param data
+     */
+    public void setData(List<WeatherBean> data) {
+        if (data == null || data.isEmpty()) {
+            return;
+        }
+        this.data = data;
+        weatherDatas.clear();
+        points.clear();
+        dashDatas.clear();
+
+        initWeatherMap(); //初始化相邻的相同天气分组
+        requestLayout();
+        invalidate();
+    }
+
+    /**
+     * 根据元数据中连续相同的天气数做分组,
+     * pair中的first值为连续相同天气的数量，second值为对应天气
+     */
+    private void initWeatherMap() {
+        weatherDatas.clear();
+        String lastWeather = "";
+        int count = 0;
+        for (int i = 0; i < data.size(); i++) {
+            WeatherBean bean = data.get(i);
+            if (i == 0) {
+                lastWeather = bean.getWeather();
+            }
+            if (bean.getWeather() != lastWeather) {
+                Pair<Integer, String> pair = new Pair<>(count, lastWeather);
+                weatherDatas.add(pair);
+                count = 1;
+            } else {
+                count++;
+            }
+            lastWeather = bean.getWeather();
+
+            if (i == data.size() - 1) {
+                Pair<Integer, String> pair = new Pair<>(count, lastWeather);
+                weatherDatas.add(pair);
+            }
+        }
+
+        for (int i = 0; i < weatherDatas.size(); i++) {
+            int c = weatherDatas.get(i).first;
+            String w = weatherDatas.get(i).second;
+            Log.d("ccy", "weatherMap i =" + i + ";count = " + c + ";weather = " + w);
+        }
+    }
+
     private void calculatePointGap() {
         int lastMaxTem = -100000;
         int lastMinTem = 100000;
@@ -127,24 +192,27 @@ public class MiUiWeatherView extends View {
 
     /**
      * 初始化笔
+     *
      * @param context
      */
     private void initPaint(Context context) {
         linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        linePaint.setStrokeWidth(dp2px(context,1));
+        linePaint.setStrokeWidth(dp2px(context, 1));
 
+        textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setTextSize(textSize);
         textPaint.setColor(Color.BLACK);
         textPaint.setTextAlign(Paint.Align.CENTER);
 
         circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        circlePaint.setStrokeWidth(dp2pxF(context,1));
+        circlePaint.setStrokeWidth(dp2pxF(context, 1));
 
 
     }
 
     /**
      * 初始化尺寸
+     *
      * @param context
      */
     private void initSize(Context context) {
@@ -152,10 +220,10 @@ public class MiUiWeatherView extends View {
         screenHeight = getResources().getDisplayMetrics().heightPixels;
 
         minViewHeight = 3 * minPointHeight;//默认3倍
-        pointRadius = dp2pxF(context,2.5f);
-        textSize = sp2pxF(context,10);
+        pointRadius = dp2pxF(context, 2.5f);
+        textSize = sp2pxF(context, 10);
         defaultPadding = (int) (0.5 * minPointHeight);//默认0.5倍内间距
-        iconWidth = (1.0f/3.0f) * lineInterval;//默认1/3倍
+        iconWidth = (1.0f / 3.0f) * lineInterval;//默认1/3倍
     }
 
     /**
@@ -171,8 +239,322 @@ public class MiUiWeatherView extends View {
         }
     }
 
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        int heightSize = MeasureSpec.getSize(heightMeasureSpec);
+        int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+
+        if (heightMode == MeasureSpec.EXACTLY) {
+            viewHeight = Math.max(heightSize, minViewHeight);
+        } else {
+            viewHeight = minViewHeight;
+        }
+
+        int totalWidth = 0;
+        if (data.size() > 1) {
+            totalWidth = 2 * defaultPadding + lineInterval * (data.size() - 1);
+        }
+        viewWidth = Math.max(screenWidth, totalWidth);  //默认控件最小宽度为屏幕宽度
+
+        setMeasuredDimension(viewWidth, viewHeight);
+        calculatePointGap();
+        Log.d("ccy", "viewHeight = " + viewHeight + ";viewWidth = " + viewWidth);
+
+    }
+
+    @Override
+    protected void onDraw(Canvas canvas) {
+        super.onDraw(canvas);
+        if (data.isEmpty()) {
+            return;
+        }
+
+        drawAxis(canvas);
+
+        drawLinesAndPoints(canvas);
+
+        drawTemperature(canvas);
+
+        drawWeatherDash(canvas);
+
+        drawWeatherIcon(canvas);
+    }
+
+    /**
+     * 画时间轴
+     *
+     * @param canvas
+     */
+    private void drawAxis(Canvas canvas) {
+        canvas.save();
+        linePaint.setColor(DEFAULT_GRAY);
+        linePaint.setStrokeWidth(dp2px(getContext(), 1));
+        //坐标轴
+        canvas.drawLine(defaultPadding,
+                viewHeight - defaultPadding,
+                viewWidth - defaultPadding,
+                viewHeight - defaultPadding,
+                linePaint);
+
+        // 坐标轴下移15dp
+        float centerY = viewHeight - defaultPadding + dp2pxF(getContext(), 15);
+        float centerX;
+        for (int i = 0; i < data.size(); i++) {
+            String text = data.get(i).getTime();
+            centerX = defaultPadding + i * lineInterval;
+            Paint.FontMetrics m = textPaint.getFontMetrics();
+            canvas.drawText(text, 0, text.length(), centerX, centerY - (m.ascent + m.descent) / 2, textPaint);
+        }
+        canvas.restore();
+    }
+
+    /**
+     * 画折线和它拐点的园
+     *
+     * @param canvas
+     */
+    private void drawLinesAndPoints(Canvas canvas) {
+        canvas.save();
+        linePaint.setColor(DEFAULT_BULE);
+        linePaint.setStrokeWidth(dp2px(getContext(), 1));
+        linePaint.setStyle(Paint.Style.STROKE);
+
+        //用于绘制折线
+        Path linePath = new Path();
+        points.clear();
+        int baseHeight = defaultPadding + minPointHeight;
+        float centerX;
+        float centerY;
+        for (int i = 0; i < data.size(); i++) {
+            int tem = data.get(i).getTemperature();
+            tem = tem - minTemperature;
+            centerY = (int) (viewHeight - (baseHeight + tem * pointGap));
+            centerX = defaultPadding + i * lineInterval;
+            points.add(new PointF(centerX, centerY));
+            if (i == 0) {
+                linePath.moveTo(centerX, centerY);
+            } else {
+                linePath.lineTo(centerX, centerY);
+            }
+        }
+    }
+
+    /**
+     * 画温度描述值
+     *
+     * @param canvas
+     */
+    private void drawTemperature(Canvas canvas) {
+        canvas.save();
+        textPaint.setTextSize(1.2f * textSize); //字体放大一丢丢
+        float centerX;
+        float centerY;
+        String text;
+        for (int i = 0; i < points.size(); i++) {
+            text = data.get(i).getTemperatureStr();
+            centerX = points.get(i).x;
+            centerY = points.get(i).y - dp2pxF(getContext(), 13);
+            Paint.FontMetrics metrics = textPaint.getFontMetrics();
+            canvas.drawText(text,
+                    centerX,
+                    centerY - (metrics.ascent + metrics.descent) / 2,
+                    textPaint);
+        }
+        textPaint.setTextSize(textSize);
+        canvas.restore();
+    }
+
+
+    /**
+     * 画不同天气之间的虚线
+     *
+     * @param canvas
+     */
+    private void drawWeatherDash(Canvas canvas) {
+        canvas.save();
+        linePaint.setColor(DEFAULT_GRAY);
+        linePaint.setStrokeWidth(dp2pxF(getContext(), 0.5f));
+        linePaint.setAlpha(0xcc);
+
+        //设置画笔画出虚线
+        float[] f = {dp2pxF(getContext(), 5), dp2pxF(getContext(), 1)};  //两个值分别为循环的实线长度、空白长度
+        PathEffect pathEffect = new DashPathEffect(f, 0);
+        linePaint.setPathEffect(pathEffect);
+
+        dashDatas.clear();
+        int interval = 0;
+        float startX, startY, endX, endY;
+        endY = viewHeight - defaultPadding;
+
+        //0坐标点的虚线手动画上
+        canvas.drawLine(defaultPadding,
+                points.get(0).y + pointRadius + dp2pxF(getContext(), 2),
+                defaultPadding,
+                endY,
+                linePaint);
+        dashDatas.add((float) defaultPadding);
+
+        for (int i = 0; i < weatherDatas.size(); i++) {
+            interval += weatherDatas.get(i).first;
+            if (interval > points.size() - 1) {
+                interval = points.size() - 1;
+            }
+            startX = endX = defaultPadding + interval * lineInterval;
+            startY = points.get(interval).y + pointRadius + dp2pxF(getContext(), 2);
+            dashDatas.add(startX);
+            canvas.drawLine(startX, startY, endX, endY, linePaint);
+        }
+
+        //这里注意一下，当最后一组的连续天气数为1时，是不需要计入虚线集合的，否则会多画一个天气图标
+        //若不理解，可尝试去掉下面这块代码并观察运行效果
+        if (weatherDatas.get(weatherDatas.size() - 1).first == 1
+                && dashDatas.size() > 1) {
+            dashDatas.remove(dashDatas.get(dashDatas.size() - 1));
+        }
+
+        linePaint.setPathEffect(null);
+        linePaint.setAlpha(0xff);
+        canvas.restore();
+    }
+
+    /**
+     * 画天气图标和它下方文字
+     * 若相邻虚线都在屏幕内，图标的x位置即在两虚线的中间
+     * 若有一条虚线在屏幕外，图标的x位置即在屏幕边沿到另一条虚线的中间
+     * 若两条都在屏幕外，图标x位置紧贴某一条虚线或屏幕中间
+     *
+     * @param canvas
+     */
+    private void drawWeatherIcon(Canvas canvas) {
+        canvas.save();
+        textPaint.setTextSize(0.9f * textSize); //字体缩小一丢丢
+
+        boolean leftUsedScreenLeft = false;
+        boolean rightUsedScreenRight = false;
+
+        int scrollX = getScrollX();  //范围控制在0 ~ viewWidth-screenWidth
+        float left, right;
+        float iconX, iconY;
+        float textY;     //文字的x坐标跟图标是一样的，无需额外声明
+        iconY = viewHeight - (defaultPadding + minPointHeight / 2.0f);
+        textY = iconY + iconWidth / 2.0f + dp2pxF(getContext(), 10);
+        Paint.FontMetrics metrics = textPaint.getFontMetrics();
+        for (int i = 0; i < dashDatas.size() - 1; i++) {
+            left = dashDatas.get(i);
+            right = dashDatas.get(i + 1);
+
+            //以下校正的情况为：两条虚线都在屏幕内或只有一条在屏幕内
+
+            if (left < scrollX &&    //仅左虚线在屏幕外
+                    right < scrollX + screenWidth) {
+                left = scrollX;
+                leftUsedScreenLeft = true;
+            }
+            if (right > scrollX + screenWidth &&  //仅右虚线在屏幕外
+                    left > scrollX) {
+                right = scrollX + screenWidth;
+                rightUsedScreenRight = true;
+            }
+
+            if (right - left > iconWidth) {    //经过上述校正之后左右距离还大于图标宽度
+                iconX = left + (right - left) / 2.0f;
+            } else {                          //经过上述校正之后左右距离小于图标宽度，则贴着在屏幕内的虚线
+                if (leftUsedScreenLeft) {
+                    iconX = right - iconWidth / 2.0f;
+                } else {
+                    iconX = left + iconWidth / 2.0f;
+                }
+            }
+
+            //以下校正的情况为：两条虚线都在屏幕之外
+
+            if (right < scrollX) {  //两条都在屏幕左侧，图标紧贴右虚线
+                iconX = right - iconWidth / 2.0f;
+            } else if (left > scrollX + screenWidth) {   //两条都在屏幕右侧，图标紧贴左虚线
+                iconX = left + iconWidth / 2.0f;
+            } else if (left < scrollX && right > scrollX + screenWidth) {  //一条在屏幕左一条在屏幕右，图标居中
+                iconX = scrollX + (screenWidth / 2.0f);
+            }
+
+
+            Bitmap icon = icons.get(weatherDatas.get(i).second);
+
+            //经过上述校正之后可以得到图标和文字的绘制区域
+            RectF iconRect = new RectF(iconX - iconWidth / 2.0f,
+                    iconY - iconWidth / 2.0f,
+                    iconX + iconWidth / 2.0f,
+                    iconY + iconWidth / 2.0f);
+
+            canvas.drawBitmap(icon, null, iconRect, null);  //画图标
+
+            canvas.drawText(weatherDatas.get(i).second, //画图标下方文字
+                    iconX,
+                    textY - (metrics.ascent + metrics.descent) / 2,
+                    textPaint);
+
+            leftUsedScreenLeft = rightUsedScreenRight = false; //重置标志位
+        }
+
+        textPaint.setTextSize(textSize);
+        canvas.restore();
+    }
+
+    private float lastX = 0;
+    private float x = 0;
+
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        if (velocityTracker == null) {
+            velocityTracker = VelocityTracker.obtain();
+        }
+        velocityTracker.addMovement(event);
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                if (!scroller.isFinished()) {  //fling还没结束
+                    scroller.abortAnimation();
+                }
+                lastX = x = event.getX();
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                x = event.getX();
+                int deltaX = (int) (lastX - x);
+                if (getScrollX() + deltaX < 0) {    //越界恢复
+                    scrollTo(0, 0);
+                    return true;
+                } else if (getScrollX() + deltaX > viewWidth - screenWidth) {
+                    scrollTo(viewWidth - screenWidth, 0);
+                    return true;
+                }
+                scrollBy(deltaX, 0);
+                lastX = x;
+                break;
+            case MotionEvent.ACTION_UP:
+                x = event.getX();
+                velocityTracker.computeCurrentVelocity(1000);  //计算1秒内滑动过多少像素
+                int xVelocity = (int) velocityTracker.getXVelocity();
+                if (Math.abs(xVelocity) > viewConfiguration.getScaledMinimumFlingVelocity()) {  //滑动速度可被判定为抛动
+                    scroller.fling(getScrollX(), 0, -xVelocity, 0, 0, viewWidth - screenWidth, 0, 0);
+                    invalidate();
+                }
+                break;
+        }
+        return super.onTouchEvent(event);
+    }
+
+    @Override
+    public void computeScroll() {
+        super.computeScroll();
+        if (scroller.computeScrollOffset()) {
+            scrollTo(scroller.getCurrX(), scroller.getCurrY());
+            invalidate();
+        }
+    }
+
     /**
      * 根据天气获取对应的图标，并且缩放到指定大小
+     *
      * @param weather
      * @param requestW
      * @param requestH

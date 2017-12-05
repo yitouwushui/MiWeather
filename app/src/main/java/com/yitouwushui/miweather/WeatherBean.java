@@ -32,6 +32,13 @@ public class WeatherBean {
         this.time = time;
     }
 
+    public WeatherBean(String weather, int temperature,String time) {
+        this.weather = weather;
+        this.temperature = temperature;
+        this.time = time;
+        this.temperatureStr = temperature + "°";
+    }
+
     public static String[] getAllWeathers(){
         String[] str = {SUN,RAIN,CLOUDY,SUN_CLOUD,SNOW,THUNDER};
         return str;
@@ -43,5 +50,29 @@ public class WeatherBean {
 
     public void setTemperature(int temperature) {
         this.temperature = temperature;
+    }
+
+    public String getWeather() {
+        return weather;
+    }
+
+    public void setWeather(String weather) {
+        this.weather = weather;
+    }
+
+    public String getTemperatureStr() {
+        return temperatureStr;
+    }
+
+    public void setTemperatureStr(String temperatureStr) {
+        this.temperatureStr = temperatureStr;
+    }
+
+    public String getTime() {
+        return time;
+    }
+
+    public void setTime(String time) {
+        this.time = time;
     }
 }

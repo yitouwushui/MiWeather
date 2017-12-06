@@ -19,7 +19,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        weatherView = (MiUiWeatherView) findViewById(R.id.weather);
+        weatherView = findViewById(R.id.weather);
 
         List<WeatherBean> data = new ArrayList<>();
         Random random = new Random();
@@ -53,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
         data.add(b5);
         data.add(b6);
 
-        weatherView.setData(data);
+         weatherView.setData(data);
     }
 
 

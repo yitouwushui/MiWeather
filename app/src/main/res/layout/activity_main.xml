@@ -6,13 +6,23 @@
     android:layout_height="match_parent"
     tools:context="com.yitouwushui.miweather.MainActivity">
 
-    <com.yitouwushui.miweather.MiUiWeatherView
+
+    <view
+        class="com.yitouwushui.miweather.MiUiWeatherView"
         android:id="@+id/weather"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:background_color="#ffffff"
-        app:line_interval="60dp"
-        app:min_point_height="60dp" />
+        android:layout_width="60dp"
+        android:layout_height="60dp"
+        android:padding="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
 
+    <!--<com.yitouwushui.miweather.MiUiWeatherView-->
+        <!--android:id="@+id/weather"-->
+        <!--android:layout_width="match_parent"-->
+        <!--android:layout_height="wrap_content"-->
+        <!--app:background_color="#ffffff"-->
+        <!--app:line_interval="60dp"-->
+        <!--app:min_point_height="60dp" />-->
 </android.support.constraint.ConstraintLayout>

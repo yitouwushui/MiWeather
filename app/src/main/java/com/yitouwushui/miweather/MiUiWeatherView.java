@@ -1,6 +1,5 @@
 package com.yitouwushui.miweather;
 
-import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -32,21 +31,12 @@ import java.util.Map;
 /**
  * Created by ding on 2017/11/30.
  */
-
 public class MiUiWeatherView extends View {
 
-    /**
-     * 蓝色
-     */
     private static int DEFAULT_BULE = 0XFF00BFFF;
-    /**
-     * 灰色
-     */
     private static int DEFAULT_GRAY = Color.GRAY;
 
     private int backgroundColor;
-
-    //控件的最低高度
     private int minViewHeight; //控件的最低高度
     private int minPointHeight;//折线最低点的高度
     private int lineInterval; //折线线段长度
@@ -60,9 +50,9 @@ public class MiUiWeatherView extends View {
     private int screenWidth;
     private int screenHeight;
 
-    private Paint linePaint;//线条画笔
-    private Paint textPaint;//文字画笔
-    private Paint circlePaint;//圆点画笔
+    private Paint linePaint; //线画笔
+    private Paint textPaint; //文字画笔
+    private Paint circlePaint; //圆点画笔
 
     private List<WeatherBean> data = new ArrayList<>(); //元数据
     private List<Pair<Integer, String>> weatherDatas = new ArrayList<>();  //对元数据中天气分组后的集合
@@ -72,28 +62,24 @@ public class MiUiWeatherView extends View {
     private int maxTemperature;//元数据中的最高和最低温度
     private int minTemperature;
 
-    /**
-     * 可以滑动的背景板块
-     */
+    private VelocityTracker velocityTracker;
     private Scroller scroller;
     private ViewConfiguration viewConfiguration;
-    private VelocityTracker velocityTracker;
 
 
     public MiUiWeatherView(Context context) {
-        super(context);
+        this(context, null);
     }
 
-    public MiUiWeatherView(Context context, @Nullable AttributeSet attrs) {
-        super(context, attrs);
+    public MiUiWeatherView(Context context, AttributeSet attrs) {
+        this(context, attrs, 0);
     }
 
-    public MiUiWeatherView(Context context, @Nullable AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
+    public MiUiWeatherView(Context context, AttributeSet attrs, int defStyle) {
+        super(context, attrs, defStyle);
         scroller = new Scroller(context);
         viewConfiguration = ViewConfiguration.get(context);
 
-        @SuppressLint({"CustomViewStyleable", "Recycle"})
         TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.MiuiWeatherView);
         minPointHeight = (int) ta.getDimension(R.styleable.MiuiWeatherView_min_point_height, dp2pxF(context, 60));
         lineInterval = (int) ta.getDimension(R.styleable.MiuiWeatherView_line_interval, dp2pxF(context, 60));
@@ -107,13 +93,64 @@ public class MiUiWeatherView extends View {
         initPaint(context);
 
         initIcons();
+
+
+
+    }
+
+    /**
+     * 初始化默认数据
+     */
+    private void initSize(Context c) {
+        screenWidth = getResources().getDisplayMetrics().widthPixels;
+        screenHeight = getResources().getDisplayMetrics().heightPixels;
+
+        minViewHeight = 3 * minPointHeight;  //默认3倍
+        pointRadius = dp2pxF(c, 2.5f);
+        textSize = sp2pxF(c, 10);
+        defaultPadding = (int) (0.5 * minPointHeight);  //默认0.5倍
+        iconWidth = (1.0f / 3.0f) * lineInterval; //默认1/3倍
+    }
+
+    /**
+     * 计算折线单位高度差
+     */
+    private void calculatePontGap() {
+        int lastMaxTem = -100000;
+        int lastMinTem = 100000;
+        for (WeatherBean bean : data) {
+            if (bean.getTemperature() > lastMaxTem) {
+                maxTemperature = bean.getTemperature();
+                lastMaxTem = bean.getTemperature();
+            }
+            if (bean.getTemperature() < lastMinTem) {
+                minTemperature = bean.getTemperature();
+                lastMinTem = bean.getTemperature();
+            }
+        }
+        float gap = (maxTemperature - minTemperature) * 1.0f;
+        gap = (gap == 0.0f ? 1.0f : gap);  //保证分母不为0
+        pointGap = (viewHeight - minPointHeight - 2 * defaultPadding) / gap;
+    }
+
+    private void initPaint(Context c) {
+        linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        linePaint.setStrokeWidth(dp2px(c, 1));
+
+        textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setTextSize(textSize);
+        textPaint.setColor(Color.BLACK);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+
+        circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        circlePaint.setStrokeWidth(dp2pxF(c, 1));
     }
 
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
         initSize(getContext());
-        calculatePointGap();
+        calculatePontGap();
     }
 
     /**
@@ -133,6 +170,21 @@ public class MiUiWeatherView extends View {
         initWeatherMap(); //初始化相邻的相同天气分组
         requestLayout();
         invalidate();
+    }
+
+
+
+    /**
+     * 初始化天气图标集合
+     * （涉及解析、缩放等耗时操作，故不要在ondraw里再去获取图片，提前解析好放在集合里)
+     */
+    private void initIcons() {
+        icons.clear();
+        String[] weathers = WeatherBean.getAllWeathers();
+        for (int i = 0; i < weathers.length; i++) {
+            Bitmap bmp = getWeatherIcon(weathers[i], iconWidth, iconWidth);
+            icons.put(weathers[i], bmp);
+        }
     }
 
     /**
@@ -170,75 +222,6 @@ public class MiUiWeatherView extends View {
         }
     }
 
-    private void calculatePointGap() {
-        int lastMaxTem = -100000;
-        int lastMinTem = 100000;
-        for (WeatherBean bean : data) {
-            if (bean.getTemperature() > lastMaxTem) {
-                // 记录最大值
-                maxTemperature = bean.getTemperature();
-                lastMaxTem = bean.getTemperature();
-            }
-            if (bean.getTemperature() < lastMinTem) {
-                // 记录最小值
-                minTemperature = bean.getTemperature();
-                lastMinTem = bean.getTemperature();
-            }
-        }
-        float gap = (maxTemperature - minTemperature) * 1.0f;
-        gap = (gap == 0.0f ? 1.0f : gap);  //保证分母不为0
-        pointGap = (viewHeight - minPointHeight - 2 * defaultPadding) / gap;
-    }
-
-    /**
-     * 初始化笔
-     *
-     * @param context
-     */
-    private void initPaint(Context context) {
-        linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        linePaint.setStrokeWidth(dp2px(context, 1));
-
-        textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        textPaint.setTextSize(textSize);
-        textPaint.setColor(Color.BLACK);
-        textPaint.setTextAlign(Paint.Align.CENTER);
-
-        circlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        circlePaint.setStrokeWidth(dp2pxF(context, 1));
-
-
-    }
-
-    /**
-     * 初始化尺寸
-     *
-     * @param context
-     */
-    private void initSize(Context context) {
-        screenWidth = getResources().getDisplayMetrics().widthPixels;
-        screenHeight = getResources().getDisplayMetrics().heightPixels;
-
-        minViewHeight = 3 * minPointHeight;//默认3倍
-        pointRadius = dp2pxF(context, 2.5f);
-        textSize = sp2pxF(context, 10);
-        defaultPadding = (int) (0.5 * minPointHeight);//默认0.5倍内间距
-        iconWidth = (1.0f / 3.0f) * lineInterval;//默认1/3倍
-    }
-
-    /**
-     * 初始化天气图标集合
-     * （涉及解析、缩放等耗时操作，故不要在ondraw里再去获取图片，提前解析好放在集合里)
-     */
-    private void initIcons() {
-        icons.clear();
-        String[] weathers = WeatherBean.getAllWeathers();
-        for (int i = 0; i < weathers.length; i++) {
-            Bitmap bmp = getWeatherIcon(weathers[i], iconWidth, iconWidth);
-            icons.put(weathers[i], bmp);
-        }
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -258,9 +241,8 @@ public class MiUiWeatherView extends View {
         viewWidth = Math.max(screenWidth, totalWidth);  //默认控件最小宽度为屏幕宽度
 
         setMeasuredDimension(viewWidth, viewHeight);
-        calculatePointGap();
+        calculatePontGap();
         Log.d("ccy", "viewHeight = " + viewHeight + ";viewWidth = " + viewWidth);
-
     }
 
     @Override
@@ -269,7 +251,6 @@ public class MiUiWeatherView extends View {
         if (data.isEmpty()) {
             return;
         }
-
         drawAxis(canvas);
 
         drawLinesAndPoints(canvas);
@@ -279,6 +260,7 @@ public class MiUiWeatherView extends View {
         drawWeatherDash(canvas);
 
         drawWeatherIcon(canvas);
+
     }
 
     /**
@@ -290,14 +272,13 @@ public class MiUiWeatherView extends View {
         canvas.save();
         linePaint.setColor(DEFAULT_GRAY);
         linePaint.setStrokeWidth(dp2px(getContext(), 1));
-        //坐标轴
+
         canvas.drawLine(defaultPadding,
                 viewHeight - defaultPadding,
                 viewWidth - defaultPadding,
                 viewHeight - defaultPadding,
                 linePaint);
 
-        // 坐标轴下移15dp
         float centerY = viewHeight - defaultPadding + dp2pxF(getContext(), 15);
         float centerX;
         for (int i = 0; i < data.size(); i++) {
@@ -317,11 +298,10 @@ public class MiUiWeatherView extends View {
     private void drawLinesAndPoints(Canvas canvas) {
         canvas.save();
         linePaint.setColor(DEFAULT_BULE);
-        linePaint.setStrokeWidth(dp2px(getContext(), 1));
+        linePaint.setStrokeWidth(dp2pxF(getContext(), 1));
         linePaint.setStyle(Paint.Style.STROKE);
 
-        //用于绘制折线
-        Path linePath = new Path();
+        Path linePath = new Path(); //用于绘制折线
         points.clear();
         int baseHeight = defaultPadding + minPointHeight;
         float centerX;
@@ -338,6 +318,28 @@ public class MiUiWeatherView extends View {
                 linePath.lineTo(centerX, centerY);
             }
         }
+        canvas.drawPath(linePath, linePaint); //画出折线
+
+        //接下来画折线拐点的园
+        float x, y;
+        for (int i = 0; i < points.size(); i++) {
+            x = points.get(i).x;
+            y = points.get(i).y;
+
+            //先画一个颜色为背景颜色的实心园覆盖掉折线拐角
+            circlePaint.setStyle(Paint.Style.FILL_AND_STROKE);
+            circlePaint.setColor(backgroundColor);
+            canvas.drawCircle(x, y,
+                    pointRadius + dp2pxF(getContext(), 1),
+                    circlePaint);
+            //再画出正常的空心园
+            circlePaint.setStyle(Paint.Style.STROKE);
+            circlePaint.setColor(DEFAULT_BULE);
+            canvas.drawCircle(x, y,
+                    pointRadius,
+                    circlePaint);
+        }
+        canvas.restore();
     }
 
     /**
@@ -347,6 +349,7 @@ public class MiUiWeatherView extends View {
      */
     private void drawTemperature(Canvas canvas) {
         canvas.save();
+
         textPaint.setTextSize(1.2f * textSize); //字体放大一丢丢
         float centerX;
         float centerY;
@@ -358,13 +361,12 @@ public class MiUiWeatherView extends View {
             Paint.FontMetrics metrics = textPaint.getFontMetrics();
             canvas.drawText(text,
                     centerX,
-                    centerY - (metrics.ascent + metrics.descent) / 2,
+                    centerY - (metrics.ascent + metrics.descent)/2,
                     textPaint);
         }
         textPaint.setTextSize(textSize);
         canvas.restore();
     }
-
 
     /**
      * 画不同天气之间的虚线
@@ -397,8 +399,8 @@ public class MiUiWeatherView extends View {
 
         for (int i = 0; i < weatherDatas.size(); i++) {
             interval += weatherDatas.get(i).first;
-            if (interval > points.size() - 1) {
-                interval = points.size() - 1;
+            if(interval > points.size()-1){
+                interval = points.size()-1;
             }
             startX = endX = defaultPadding + interval * lineInterval;
             startY = points.get(interval).y + pointRadius + dp2pxF(getContext(), 2);
@@ -408,9 +410,9 @@ public class MiUiWeatherView extends View {
 
         //这里注意一下，当最后一组的连续天气数为1时，是不需要计入虚线集合的，否则会多画一个天气图标
         //若不理解，可尝试去掉下面这块代码并观察运行效果
-        if (weatherDatas.get(weatherDatas.size() - 1).first == 1
-                && dashDatas.size() > 1) {
-            dashDatas.remove(dashDatas.get(dashDatas.size() - 1));
+        if(weatherDatas.get(weatherDatas.size()-1).first == 1
+                && dashDatas.size() > 1){
+            dashDatas.remove(dashDatas.get(dashDatas.size()-1));
         }
 
         linePaint.setPathEffect(null);
@@ -490,7 +492,7 @@ public class MiUiWeatherView extends View {
 
             canvas.drawText(weatherDatas.get(i).second, //画图标下方文字
                     iconX,
-                    textY - (metrics.ascent + metrics.descent) / 2,
+                    textY - (metrics.ascent+metrics.descent)/2,
                     textPaint);
 
             leftUsedScreenLeft = rightUsedScreenRight = false; //重置标志位
@@ -500,9 +502,64 @@ public class MiUiWeatherView extends View {
         canvas.restore();
     }
 
+
+    /**
+     * 根据天气获取对应的图标，并且缩放到指定大小
+     * @param weather
+     * @param requestW
+     * @param requestH
+     * @return
+     */
+    private Bitmap getWeatherIcon(String weather, float requestW, float requestH) {
+        int resId = getIconResId(weather);
+        Bitmap bmp;
+        int outWdith, outHeight;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeResource(getResources(), resId, options);
+        outWdith = options.outWidth;
+        outHeight = options.outHeight;
+        options.inSampleSize = 1;
+        if (outWdith > requestW || outHeight > requestH) {
+            int ratioW = Math.round(outWdith / requestW);
+            int ratioH = Math.round(outHeight / requestH);
+            options.inSampleSize = Math.max(ratioW, ratioH);
+        }
+        options.inJustDecodeBounds = false;
+        bmp = BitmapFactory.decodeResource(getResources(), resId, options);
+        return bmp;
+    }
+
+
+    private int getIconResId(String weather) {
+        int resId;
+        switch (weather) {
+            case WeatherBean.SUN:
+                resId = R.drawable.sun;
+                break;
+            case WeatherBean.CLOUDY:
+                resId = R.drawable.cloudy;
+                break;
+            case WeatherBean.RAIN:
+                resId = R.drawable.rain;
+                break;
+            case WeatherBean.SNOW:
+                resId = R.drawable.snow;
+                break;
+            case WeatherBean.SUN_CLOUD:
+                resId = R.drawable.sun_cloud;
+                break;
+            case WeatherBean.THUNDER:
+            default:
+                resId = R.drawable.thunder;
+                break;
+        }
+        return resId;
+    }
+
+
     private float lastX = 0;
     private float x = 0;
-
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
@@ -552,60 +609,7 @@ public class MiUiWeatherView extends View {
         }
     }
 
-    /**
-     * 根据天气获取对应的图标，并且缩放到指定大小
-     *
-     * @param weather
-     * @param requestW
-     * @param requestH
-     * @return
-     */
-    private Bitmap getWeatherIcon(String weather, float requestW, float requestH) {
-        int resId = getIconResId(weather);
-        Bitmap bmp;
-        int outWidth, outHeight;
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
-        BitmapFactory.decodeResource(getResources(), resId, options);
-        outWidth = options.outWidth;
-        outHeight = options.outHeight;
-        options.inSampleSize = 1;
-        if (outWidth > requestW || outHeight > requestH) {
-            int ratioW = Math.round(outWidth / requestW);
-            int ratioH = Math.round(outHeight / requestH);
-            options.inSampleSize = Math.max(ratioW, ratioH);
-        }
-        options.inJustDecodeBounds = false;
-        bmp = BitmapFactory.decodeResource(getResources(), resId, options);
-        return bmp;
-    }
-
-    private int getIconResId(String weather) {
-        int resId;
-        switch (weather) {
-            case WeatherBean.SUN:
-                resId = R.drawable.sun;
-                break;
-            case WeatherBean.CLOUDY:
-                resId = R.drawable.cloudy;
-                break;
-            case WeatherBean.RAIN:
-                resId = R.drawable.rain;
-                break;
-            case WeatherBean.SNOW:
-                resId = R.drawable.snow;
-                break;
-            case WeatherBean.SUN_CLOUD:
-                resId = R.drawable.sun_cloud;
-                break;
-            case WeatherBean.THUNDER:
-            default:
-                resId = R.drawable.thunder;
-                break;
-        }
-        return resId;
-    }
-
+    //工具类
     public static int dp2px(Context c, float dp) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, c.getResources().getDisplayMetrics());
     }
